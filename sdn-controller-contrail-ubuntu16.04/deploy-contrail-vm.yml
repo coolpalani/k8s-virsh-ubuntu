@@ -1,0 +1,143 @@
+---
+
+# This playbook to deploy VMs in KVM for kubernetes cluster
+
+- hosts: rhel7-office
+  become: true
+  become_method: sudo
+  vars:
+    ubuntu_template: ubuntu16.04
+# This network for Bridge interface of host machine
+    net_type_1: bridge
+    host_bridge: br0
+
+# This network type is for virtual internal or Forwarding networks ( for example: virbr0)
+    net_type_2: network
+
+# office network
+    vm_routed_network: default
+
+#  home network
+#    vm_routed_network: NAT
+
+    nic_device_model: virtio
+    storage_pool: vms
+    vms_disk_path: /vms
+    sdn_controller: contrail
+
+    contrail_ext_ip: 10.107.69.200
+    contrail_ext_nmask: 255.255.255.224
+
+    contrail_primary_netmask: 255.255.255.0
+    contrail_primary_dns: 192.168.2.1
+    contrail_primary_gw: 192.168.2.1
+
+    sdn_controller_ext_ip_cmd: 10.107.69.200/27
+    sdn_controller_ext_net: 10.107.69.192/27
+    sdn_controller_ext_gw: 10.107.69.193
+
+  tasks:
+  - name: Create Contrail VM using Ubuntu16.04 template
+    command: virt-clone -o "{{ubuntu_template}}" -n "{{sdn_controller}}" -f "{{vms_disk_path}}"/"{{sdn_controller}}".qcow2
+    ignore_errors: false
+
+#  - name: Modify domain connection socket in XML file for RHEL host
+#    shell: sed -i -e 's/domain-"{{centos_template}}"/domain-"{{item}}"/g' /etc/libvirt/qemu/"{{item}}".xml
+#    replace:
+#      path: /etc/libvirt/qemu/"{{item}}".xml
+#      regexp: '(\s+)domain-"{{centos_template}}"(\s+.*)?$'
+#      replace: '\1domain-"{{item}}"\2'
+#      backup: yes
+#    with_items:
+#      - "{{master}}"
+#      - "{{node1}}"
+#      - "{{node2}}"
+#    when: ansible_os_family == "RedHat"
+
+  - name: Set Max RAM in contrail VM
+    command: virsh setmaxmem "{{sdn_controller}}" 6G --config
+
+  - name: Set Usable RAM in contrail VM
+    command: virsh setmem "{{sdn_controller}}" 6G --config
+
+  - name: Set Max CPU to contrail VM
+    command: virsh setvcpus "{{ sdn_controller }}" 4 --config --maximum
+
+  - name: Set Usable CPU to contrail VM
+    command: virsh setvcpus "{{ sdn_controller }}" 4 --config
+
+  - name: Attach External interface to VM
+    command: virsh attach-interface "{{sdn_controller}}" "{{net_type_1}}" "{{host_bridge}}" --model "{{nic_device_model}}" --config
+    ignore_errors: false
+    tags:
+      - attach-bridge-interface
+#    notify:
+#      - restart libvirtd
+  - name: Restart libvirtd
+    service:
+      name: libvirtd
+      state: restarted
+    tags:
+      - restart_libvirtd
+  - name: Do conditional check on libvirtd service
+    wait_for:
+      path: /var/run/libvirt/libvirt-admin-sock
+      state: present
+      sleep: 5
+    ignore_errors: false
+
+  - name: Start contrail VM
+    command: virsh start "{{sdn_controller}}"
+
+  - name: Do conditional check on contrail VM Start
+    wait_for:
+      path: /var/log/messages
+      search_regex: "{{item}}"
+      sleep: 20
+      delay: 5
+    with_items:
+      - Starting Virual machine
+      - DHCPACK
+      - "{{sdn_controller}}"
+    ignore_errors: false
+
+  - name: List attached interfaces of VM
+    shell: virsh domiflist "{{sdn_controller}}"
+    register: contrail_interface_list
+  - debug:
+      var: contrail_interface_list.stdout
+
+  - name: List contrail contrail VM IP addess
+    shell: virsh domifaddr "{{sdn_controller}}" |awk 'FNR==3 {print $4}'|cut -d'/' -f1
+    register: contrail_ip
+  - debug:
+      var: contrail_ip.stdout
+
+# not working needs to fix
+#  - name: Take a snapshot of contrail VM
+#    command: virsh snapshot-create-as "{{sdn_controller}}" --name pre-done --disk-only --atomic
+#    tags:
+#      - contrail-snapshot
+
+  - name: Setup external interface ip in contrail VM
+    command: ssh -o StrictHostKeyChecking=no "{{contrail_ip.stdout}}" 'ip addr add "{{sdn_controller_ext_ip_cmd}}" dev ens9; ip link set ens9 up; ip route add "{{sdn_controller_ext_net}}" via "{{sdn_controller_ext_gw}}"'
+    ignore_errors: true
+
+#  - name: Copy interface conf files to KVM host to copy in contrail VM
+#    template:
+#      src: kubernetes-repo.j2
+#      dest: /etc/apt/sources.list.d/kubernetes.list
+#      backup: yes
+#      owner: root
+#      group: root
+#      mode: 0644
+#    tags:
+#      - k8s-repo
+
+
+
+#  handlers:
+#    - name: restart libvirtd
+#      service:
+#        name: libvirtd
+#        state: restarted

@@ -1,0 +1,9 @@
+# to bring up interface
+for i in `ls -l /sys/class/net/|awk '{print $9}'|grep -v ^$`;do ip link set $i up;done
+
+# get ip address if interface doesn't have ip. Only for NAT network of KVM
+for i in `ls -l /sys/class/net/|awk '{print $9}'|grep -v ^$`;do
+  if ! ip a s $i | egrep -qw "inet" ;then
+ dhclient $i
+  fi
+done

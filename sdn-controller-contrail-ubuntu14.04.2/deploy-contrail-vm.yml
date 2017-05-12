@@ -1,0 +1,190 @@
+---
+
+# This playbook to deploy contril VM (OS: ubuntu 14.04.2)
+# Presetup needs to be done in template
+# 1) copy KVM host public key to template for stack and root user
+# 2) set stack user sudo access with nopasswd
+# 3) in rc.local add command to bring ip second interfare and dhclient to bring up IP
+# 4) template must be configured with one temparory IP that needs to be changed later
+# 5) configure console in grub config for "virsh console" command
+# 6) root user must be configured and allowed to login over ssh
+# 7) set rc.local in template to bring up ip in VM for NAT network of VM
+#===========================================================
+# to bring up interface
+#for i in `ls -l /sys/class/net/|awk '{print $9}'|grep -v ^$`;do ip link set $i up;done
+
+# get ip address if interface doesn't have ip. Only for NAT network of KVM
+#for i in `ls -l /sys/class/net/|awk '{print $9}'|grep -v ^$`;do
+#  if ! ip a s $i | egrep -qw "inet" ;then
+#  dhclient $i
+#fi
+#done
+#===========================================================
+- hosts: rhel7-office
+  become: true
+  become_method: sudo
+  vars:
+    ubuntu_template: ubuntu14.04
+    template_ip: 10.107.69.199
+# This network for Bridge interface of host machine
+    net_type_1: bridge
+    host_bridge: br0
+# This network type is for virtual internal or Forwarding networks ( for example: virbr0)
+    net_type_2: network
+# office network
+    vm_routed_network: default
+#  home network
+#    vm_routed_network: NAT
+
+    nic_device_model: virtio
+    bridge_vm_interface: eth0
+    nat_vm_interface: eth1
+    storage_pool: vms
+    vms_disk_path: /vms
+# 14.04.2 is ubuntu version
+    sdn_controller: contrail-14.04.2
+    controller_hostname: contrail-c0
+
+    contrail_ext_ip: 10.107.69.201
+    contrail_ext_nmask: 255.255.255.224
+    contrail_ext_gw: 10.107.69.193
+    contrail_ext_dns: 10.151.22.5
+
+    contrail_nat_netmask: 255.255.255.0
+    contrail_nat_dns: 192.168.2.1
+    contrail_nat_gw: 192.168.2.1
+
+    sdn_controller_ext_ip_cmd: 10.107.69.201/27
+    sdn_controller_ext_net: 10.107.69.192/27
+
+
+  tasks:
+  - name: Create Contrail VM using ubuntu14.04 template
+    command: virt-clone -o "{{ubuntu_template}}" -n "{{sdn_controller}}" -f "{{vms_disk_path}}"/"{{sdn_controller}}".qcow2
+    ignore_errors: false
+
+#  - name: Modify domain connection socket in XML file for RHEL host
+#    shell: sed -i -e 's/domain-"{{centos_template}}"/domain-"{{item}}"/g' /etc/libvirt/qemu/"{{item}}".xml
+#    replace:
+#      path: /etc/libvirt/qemu/"{{item}}".xml
+#      regexp: '(\s+)domain-"{{centos_template}}"(\s+.*)?$'
+#      replace: '\1domain-"{{item}}"\2'
+#      backup: yes
+#    with_items:
+#      - "{{master}}"
+#      - "{{node1}}"
+#      - "{{node2}}"
+#    when: ansible_os_family == "RedHat"
+
+  - name: Set Max RAM in contrail VM
+    command: virsh setmaxmem "{{sdn_controller}}" 6G --config
+
+  - name: Set Usable RAM in contrail VM
+    command: virsh setmem "{{sdn_controller}}" 6G --config
+
+  - name: Set Max CPU to contrail VM
+    command: virsh setvcpus "{{ sdn_controller }}" 4 --config --maximum
+
+  - name: Set Usable CPU to contrail VM
+    command: virsh setvcpus "{{ sdn_controller }}" 4 --config
+
+  - name: Attach External interface to VM
+    command: virsh attach-interface "{{sdn_controller}}" "{{net_type_2}}" "{{vm_routed_network}}" --model "{{nic_device_model}}" --config
+    ignore_errors: false
+    tags:
+      - attach-routed-interface
+
+  - name: Restart libvirtd
+    service:
+      name: libvirtd
+      state: restarted
+    tags:
+      - restart_libvirtd
+  - name: Do conditional check on libvirtd service
+    wait_for:
+      path: /var/run/libvirt/libvirt-admin-sock
+      state: present
+      sleep: 5
+    ignore_errors: false
+
+  - name: Start contrail VM
+    command: virsh start "{{sdn_controller}}"
+
+  - name: Do conditional check on contrail VM Start
+    wait_for:
+      path: /var/log/messages
+      search_regex: "{{item}}"
+      sleep: 20
+      delay: 5
+    with_items:
+      - Starting Virual machine
+      - DHCPACK
+      - "{{sdn_controller}}"
+    ignore_errors: false
+
+  - name: List attached interfaces of VM
+    shell: virsh domiflist "{{sdn_controller}}"
+    register: contrail_interface_list
+  - debug:
+      var: contrail_interface_list.stdout
+
+  - name: List contrail contrail VM IP addess
+    shell: virsh domifaddr "{{sdn_controller}}" |awk 'FNR==3 {print $4}'|cut -d'/' -f1
+    register: contrail_nat_ip
+  - debug:
+      var: contrail_nat_ip.stdout
+
+  - name: Copy interface conf file and hosts to KVM host to copy in contrail VM
+    template:
+      src: "{{item}}"
+      dest: /var/tmp/
+      owner: root
+      group: root
+      mode: 0644
+    with_items:
+      - hosts_file.j2
+      - vm_ip_setup_static.j2
+    ignore_errors: false
+
+  - name: Take backup of interfaces and hosts file in VM
+    command: ssh -o StrictHostKeyChecking=no root@{{contrail_nat_ip.stdout}} "cp /etc/network/interfaces /etc/hosts /tmp"
+
+  - name: Copy contrail ip template and hosts file to VM from KVM host
+    command: scp /var/tmp/"{{item.source}}" root@"{{contrail_nat_ip.stdout}}":"{{item.destination}}"
+    with_items:
+      - { source: 'hosts_file.j2', destination: '/etc/hosts' }
+      - { source: 'vm_ip_setup_static.j2', destination: '/etc/network/interfaces' }
+    ignore_errors: false
+
+  - name: Set hostname of contrail VM and add default gw
+    command: "{{item}}"
+    with_items:
+      - ssh "{{contrail_nat_ip.stdout}}" 'hostnamectl set-hostname "{{controller_hostname}}"'
+      - ssh "{{contrail_nat_ip.stdout}}" echo 'ip route add default via "{{contrail_ext_gw}}" dev eth0' >> /etc/rc.local
+
+  - name: Restart contrail VM
+    command: virsh reboot "{{sdn_controller}}"
+
+  - name: Wait for contrail VM to reboot
+    pause:
+      mintues: 1
+      prompt: "Please hold for a minute, VM is coming up. Then use Ctrl+c and then c, to continue playbook"
+
+  - name: Do ping test to VM IPs
+    shell: ping -c4 "{{item}}"
+    with_items:
+      - "{{contrail_ext_ip}}"
+      - "{{contrail_nat_ip.stdout}}"
+    register: ping_test
+  - debug:
+      var: ping_test.stdout
+
+  - name: Create domain snapshot
+    command: virsh snapshot-create-as "{{sdn_controller}}" --name "all-pre-done" --description "All pre required OS related changes done"
+    ignore_errors: false
+
+  - name: List snapshot
+    shell: virsh snapshot-list "{{sdn_controller}}"
+    register: domain_snapshot
+  - debug:
+      var: domain_snapshot.stdout

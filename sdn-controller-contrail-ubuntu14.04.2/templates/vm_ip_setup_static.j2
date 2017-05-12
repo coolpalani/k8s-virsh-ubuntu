@@ -1,0 +1,21 @@
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+source /etc/network/interfaces.d/*
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+# The primary network interface
+auto {{bridge_vm_interface}}
+iface {{bridge_vm_interface}} inet static
+address {{contrail_ext_ip}}
+netmask {{contrail_ext_nmask}}
+gateway {{contrail_ext_gw}}
+dns-nameservers {{contrail_ext_dns}}
+
+auto {{nat_vm_interface}}
+iface {{nat_vm_interface}} inet static
+address {{contrail_nat_ip.stdout}}
+netmask {{contrail_nat_netmask}}
