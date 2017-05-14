@@ -85,16 +85,6 @@
       - { vm: "{{node1}}", cpu: '2' }
       - { vm: "{{node2}}", cpu: '2' }
 
-#  - name: Attach Data Plane network to both VMs (internal Network)
-#    command: virsh attach-interface "{{item}}" "{{type}}" "{{vm_internal_network}}" --model "{{nic_device_model}}" --config
-#    with_items:
-#      - "{{master}}"
-#      - "{{node1}}"
-#      - "{{node2}}"
-#    ignore_errors: false
-
-#    notify:
-#      - restart libvirtd
   - name: Restart libvirtd
     service:
       name: libvirtd
@@ -146,7 +136,7 @@
   - debug:
       var: interface_list.stdout
 
-  - name: Get contrail VM IP addess
+  - name: Get contrail VM IP address
     shell: for i in `cat /var/tmp/kube_domain`;do virsh domifaddr $i|awk 'FNR==3 {print $4}'|cut -d'/' -f1 >> /var/tmp/k8s_vm_ips;done
 
   - name: List VM IPs
@@ -156,7 +146,7 @@
       var: list_vm_ip.stdout
 
   - name: Get interface of guest VM OS
-    shell: for i in `cat /var/tmp/k8s_vm_ips|awk 'FNR==1 {print}'`;do ssh stack@$i ip link |grep 2:|awk 'FNR==1 {print $2}'|cut -d':' -f1;done
+    shell: for i in `cat /var/tmp/k8s_vm_ips|awk 'FNR==1 {print}'`;do ssh -o StrictHostKeyChecking=no stack@$i ip link |grep 2:|awk 'FNR==1 {print $2}'|cut -d':' -f1;done
     register: guestvm_nic
   - debug:
      var: guestvm_nic.stdout
@@ -215,10 +205,30 @@
       mintues: 1
       prompt: "Please hold for a minute, VMs are coming up. Then use Ctrl+c and then c, to continue playbook"
 
-  - name: After reboot list out VMs IP address
-    shell: for i in `cat /var/tmp/kube_domain`;do virsh domifaddr $i|awk 'FNR==3 {print $4}'|cut -d'/' -f1;done
+  - name: After reboot do validation
+    shell: ssh -o StrictHostKeyChecking=no root@"{{item}}" hostname >> /var/tmp/guest_hostname
+    with_items:
+      - "{{master_ip}}"
+      - "{{node1_ip}}"
+      - "{{node2_ip}}"
+
+  - name: List guest VMs hostname
+    shell: cat /var/tmp/guest_hostname
+    register: guest_hostname
+  - debug:
+      var: guest_hostname.stdout
+
+  - name: Take snapshot of VMs.
+    shell: for i in `cat /var/tmp/kube_domain`;do virsh snapshot-create-as $i --name "all-pre-done" --description "All pre required OS related changes done";done
+    ignore_errors: false
+
+  - name: List snapshots
+    shell: for i in `cat /var/tmp/kube_domain`;do virsh snapshot-list $i;done
+    register: snapshot_list
     notify:
       - Remove Created files
+  - debug:
+      var: snapshot_list.stdout
 
   handlers:
   - name: Remove Created files
@@ -231,20 +241,4 @@
       - k8s-node1.interface.j2
       - k8s-node2.interface.j2
       - hosts_file.j2
-
-
-#- name: Copy VMs ip template and hosts file to VM from KVM host
-#  command: scp /var/tmp/"{{item.source}}" root@"{{contrail_nat_ip.stdout}}":"{{item.destination}}"
-#  with_items:
-#    - { source: 'hosts_file.j2', destination: '/etc/hosts' }
-#    - { source: 'vm_ip_setup_static.j2', destination: '/etc/network/interfaces' }
-#  ignore_errors: false
-
-
-
-
-#  handlers:
-#    - name: restart libvirtd
-#      service:
-#        name: libvirtd
-#        state: restarted
+      - guest_hostname
