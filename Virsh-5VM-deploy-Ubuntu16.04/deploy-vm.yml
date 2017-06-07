@@ -1,0 +1,271 @@
+---
+
+# This playbook to deploy VMs in KVM for kubernetes cluster
+
+- hosts: rhel7-office
+  become: true
+  become_method: sudo
+  vars:
+    ubuntu_template: ubuntu16.04
+# This network for Bridge interface of host machine
+    net_type_1: bridge
+    host_bridge: br0
+
+# This network type is for virtual internal or Forwarding networks ( for example: virbr0)
+    net_type_2: network
+
+# office network
+    vm_routed_network: default
+
+#  home network
+#    vm_routed_network: NAT
+
+    nic_device_model: virtio
+    storage_pool: vms
+    vms_disk_path: /vms
+
+    master1: k8s-master1
+    master2: k8s-master2
+    master3: k8s-master3
+    node1: k8s-node1
+    node2: k8s-node2
+    sdn_controller: contrail
+
+    master1_ip: 192.168.2.151
+    master2_ip: 192.168.2.152
+    master3_ip: 192.168.2.153
+    node1_ip: 192.168.2.161
+    node2_ip: 192.168.2.162
+    k8s_nmask: 255.255.255.0
+    k8s_gw: 192.168.2.1
+    k8s_dns: 192.168.2.1
+
+  tasks:
+  - name: Create VMs for K8s cluster using Ubuntu16.04 template
+    command: virt-clone -o "{{ubuntu_template}}" -n "{{item}}" -f "{{vms_disk_path}}"/"{{item}}".qcow2
+    with_items:
+      - "{{master1}}"
+      - "{{master2}}"
+      - "{{master3}}"
+      - "{{node1}}"
+      - "{{node2}}"
+    ignore_errors: false
+
+#  - name: Modify domain connection socket in XML file for RHEL host
+#    shell: sed -i -e 's/domain-"{{centos_template}}"/domain-"{{item}}"/g' /etc/libvirt/qemu/"{{item}}".xml
+#    replace:
+#      path: /etc/libvirt/qemu/"{{item}}".xml
+#      regexp: '(\s+)domain-"{{centos_template}}"(\s+.*)?$'
+#      replace: '\1domain-"{{item}}"\2'
+#      backup: yes
+#    with_items:
+#      - "{{master}}"
+#      - "{{node1}}"
+#      - "{{node2}}"
+#    when: ansible_os_family == "RedHat"
+
+  - name: Set Max RAM in VMs
+    command: virsh setmaxmem "{{ item.vm }}" "{{ item.ram }}" --config
+    with_items:
+      - { vm: "{{master1}}", ram: '3G' }
+      - { vm: "{{master2}}", ram: '3G' }
+      - { vm: "{{master3}}", ram: '3G' }
+      - { vm: "{{node1}}", ram: '2G' }
+      - { vm: "{{node2}}", ram: '2G' }
+
+  - name: Set Usable RAM in VMs
+    command: virsh setmem "{{ item.vm }}" "{{ item.ram }}" --config
+    with_items:
+      - { vm: "{{master1}}", ram: '3G' }
+      - { vm: "{{master2}}", ram: '3G' }
+      - { vm: "{{master3}}", ram: '3G' }
+      - { vm: "{{node1}}", ram: '2G' }
+      - { vm: "{{node2}}", ram: '2G' }
+
+  - name: Set Max CPU for K8s VMs
+    command: virsh setvcpus "{{ item.vm }}" "{{ item.cpu }}" --config --maximum
+    with_items:
+      - { vm: "{{master1}}", cpu: '4' }
+      - { vm: "{{master2}}", cpu: '4' }
+      - { vm: "{{master3}}", cpu: '4' }
+      - { vm: "{{node1}}", cpu: '2' }
+      - { vm: "{{node2}}", cpu: '2' }
+
+  - name: Set Usable CPU for controller and compte VMs
+    command: virsh setvcpus "{{ item.vm }}" "{{ item.cpu }}" --config
+    with_items:
+      - { vm: "{{master1}}", cpu: '4' }
+      - { vm: "{{master2}}", cpu: '4' }
+      - { vm: "{{master3}}", cpu: '4' }
+      - { vm: "{{node1}}", cpu: '2' }
+      - { vm: "{{node2}}", cpu: '2' }
+
+  - name: Restart libvirtd
+    service:
+      name: libvirtd
+      state: restarted
+
+  - name: Do conditional check on libvirtd service
+    wait_for:
+      path: /var/run/libvirt/libvirt-admin-sock
+      state: present
+      sleep: 5
+    ignore_errors: false
+
+  - name: Start ALL VMs
+    command: virsh start "{{item}}"
+    with_items:
+      - "{{master1}}"
+      - "{{master2}}"
+      - "{{master3}}"
+      - "{{node1}}"
+      - "{{node2}}"
+
+  - name: Do conditional check on VM Start
+    wait_for:
+      path: /var/log/messages
+      search_regex: "{{item}}"
+      sleep: 20
+      delay: 5
+    with_items:
+      - Starting Virual machine
+      - DHCPACK
+      - "{{master1}}"
+      - "{{master2}}"
+      - "{{master3}}"
+      - "{{node1}}"
+      - "{{node2}}"
+    ignore_errors: false
+
+  - name: Get domain names
+    shell: virsh list|grep -i k8s|awk '{print $2}'|sort > /var/tmp/k8s_domain
+
+  - name: List domains
+    shell: cat /var/tmp/k8s_domain
+    register: list_domains
+  - debug:
+      var: list_domains.stdout
+
+  - name: Get attached interfaces of VMs
+    shell: for i in `cat /var/tmp/k8s_domain`;do virsh domiflist $i|grep -i virtio >> /var/tmp/k8s-vm_interface;done
+
+  - name: List VM interfaces
+    shell: cat /var/tmp/k8s-vm_interface
+    register: interface_list
+  - debug:
+      var: interface_list.stdout
+
+  - name: Get contrail VM IP addess
+    shell: for i in `cat /var/tmp/k8s_domain`;do virsh domifaddr $i|awk 'FNR==3 {print $4}'|cut -d'/' -f1 >> /var/tmp/k8s_vm_ips;done
+
+  - name: List VM IPs
+    shell: cat /var/tmp/k8s_vm_ips
+    register: list_vm_ip
+  - debug:
+      var: list_vm_ip.stdout
+
+  - name: Get interface of guest VM OS
+    shell: for i in `cat /var/tmp/k8s_vm_ips|awk 'FNR==1 {print}'`;do ssh -o StrictHostKeyChecking=no stack@$i ip link |grep 2:|awk 'FNR==1 {print $2}'|cut -d':' -f1;done
+    register: guestvm_nic
+  - debug:
+     var: guestvm_nic.stdout
+
+  - name: Copy interfaces configuration files and hosts file to KVM host to copy to VMs
+    template:
+      src: "{{item}}"
+      dest: /var/tmp/
+      owner: root
+      group: root
+      mode: 0644
+    with_items:
+      - k8s-master1.interface.j2
+      - k8s-master2.interface.j2
+      - k8s-master3.interface.j2
+      - k8s-node1.interface.j2
+      - k8s-node2.interface.j2
+      - hosts_file.j2
+    ignore_errors: false
+
+  - name: Get master1 node IP in variable
+    shell: virsh domifaddr "{{master1}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+    register: k8s_master1_ip
+
+  - name: Get master2 node IP in variable
+    shell: virsh domifaddr "{{master2}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+    register: k8s_master2_ip
+
+  - name: Get master3 node IP in variable
+    shell: virsh domifaddr "{{master3}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+    register: k8s_master3_ip
+
+  - name: Get node1 IP in variable
+    shell: virsh domifaddr "{{node1}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+    register: k8s_node1_ip
+
+  - name: Get node2 node IP in variable
+    shell: virsh domifaddr "{{node2}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+    register: k8s_node2_ip
+
+  - name: Copy VMs ip template and hosts file to VM from KVM host
+    shell: scp -o StrictHostKeyChecking=no /var/tmp/"{{item.source}}" root@$"{{item.vm}}":"{{item.destination}}"
+    with_items:
+      - { source: 'k8s-master1.interface.j2', vm: "{{k8s_master1_ip.stdout}}", destination: '/etc/network/interfaces' }
+      - { source: 'k8s-master2.interface.j2', vm: "{{k8s_master2_ip.stdout}}", destination: '/etc/network/interfaces' }
+      - { source: 'k8s-master3.interface.j2', vm: "{{k8s_master3_ip.stdout}}", destination: '/etc/network/interfaces' }
+      - { source: 'k8s-node1.interface.j2', vm: "{{k8s_node1_ip.stdout}}", destination: '/etc/network/interfaces' }
+      - { source: 'k8s-node2.interface.j2', vm: "{{k8s_node2_ip.stdout}}", destination: '/etc/network/interfaces' }
+    ignore_errors: false
+
+  - name: Copy hosts file to VM
+    shell: for i in `cat /var/tmp/k8s_vm_ips`;do scp -o StrictHostKeyChecking=no /var/tmp/hosts_file.j2 root@$i:/etc/hosts;done
+    ignore_errors: false
+
+  - name: Set hostname of K8s VMs
+    shell: ssh -o StrictHostKeyChecking=no root@"{{item.vm}}" hostnamectl set-hostname "{{item.hostname}}"
+    with_items:
+      - { vm: "{{k8s_master1_ip.stdout}}", hostname: "{{master1}}" }
+      - { vm: "{{k8s_master2_ip.stdout}}", hostname: "{{master2}}" }
+      - { vm: "{{k8s_master3_ip.stdout}}", hostname: "{{master3}}" }
+      - { vm: "{{k8s_node1_ip.stdout}}", hostname: "{{node1}}" }
+      - { vm: "{{k8s_node2_ip.stdout}}", hostname: "{{node2}}" }
+    ignore_errors: false
+
+  - name: Reboot all VMs
+    shell: for i in `cat /var/tmp/k8s_domain`;do virsh reboot $i;done
+
+  - name: Wait for VMs to come up after Reboot
+    pause:
+      mintues: 2
+      prompt: "Please hold for 2 minutes, VMs are coming up. Then use Ctrl+c and then c, to continue playbook"
+
+  - name: After reboot do validation
+    shell: ssh -o StrictHostKeyChecking=no root@"{{item}}" hostname >> /var/tmp/guest_hostname
+    with_items:
+      - "{{master1_ip}}"
+      - "{{master2_ip}}"
+      - "{{master3_ip}}"
+      - "{{node1_ip}}"
+      - "{{node2_ip}}"
+
+  - name: List guest VMs hostname
+    shell: cat /var/tmp/guest_hostname
+    register: guest_hostname
+    notify:
+      - Remove Created files
+  - debug:
+      var: guest_hostname.stdout
+
+  handlers:
+  - name: Remove Created files
+    command: rm -rf /var/tmp/"{{item}}"
+    with_items:
+      - k8s_domain
+      - k8s-vm_interface
+      - k8s_vm_ips
+      - k8s-master1.interface.j2
+      - k8s-master2.interface.j2
+      - k8s-master3.interface.j2
+      - k8s-node1.interface.j2
+      - k8s-node2.interface.j2
+      - hosts_file.j2
+      - guest_hostname
