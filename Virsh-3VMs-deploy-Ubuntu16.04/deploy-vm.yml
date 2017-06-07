@@ -197,6 +197,10 @@
       - { vm: "{{k8s_node2_ip.stdout}}", hostname: "{{node2}}" }
     ignore_errors: false
 
+  - name: Install python package in all VMs
+    shell: for i in `cat /var/tmp/k8s_vm_ips`;do ssh -o StrictHostKeyChecking=no root@$i "apt install python -y";done
+    ignore_errors: false
+
   - name: Reboot all VMs
     shell: for i in `cat /var/tmp/kube_domain`;do virsh reboot $i;done
 
@@ -221,6 +225,8 @@
   - name: Take snapshot of VMs.
     shell: for i in `cat /var/tmp/kube_domain`;do virsh snapshot-create-as $i --name "all-pre-done" --description "All pre required OS related changes done";done
     ignore_errors: false
+    tags:
+      - create_kubevm-snapshot
 
   - name: List snapshots
     shell: for i in `cat /var/tmp/kube_domain`;do virsh snapshot-list $i;done
