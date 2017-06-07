@@ -24,18 +24,18 @@
     storage_pool: vms
     vms_disk_path: /vms
 
-    master1: k8s-master1
-    master2: k8s-master2
-    master3: k8s-master3
-    node1: k8s-node1
-    node2: k8s-node2
+    master1: k8s-vm-master1
+    master2: k8s-vm-master2
+    master3: k8s-vm-master3
+    node1: k8s-vm-node1
+    node2: k8s-vm-node2
     sdn_controller: contrail
 
-    master1_ip: 192.168.2.151
-    master2_ip: 192.168.2.152
-    master3_ip: 192.168.2.153
-    node1_ip: 192.168.2.161
-    node2_ip: 192.168.2.162
+    master1_ip: 192.168.2.81
+    master2_ip: 192.168.2.82
+    master3_ip: 192.168.2.83
+    node1_ip: 192.168.2.91
+    node2_ip: 192.168.2.92
     k8s_nmask: 255.255.255.0
     k8s_gw: 192.168.2.1
     k8s_dns: 192.168.2.1
@@ -155,7 +155,7 @@
   - debug:
       var: interface_list.stdout
 
-  - name: Get contrail VM IP addess
+  - name: Get VM IP addresses
     shell: for i in `cat /var/tmp/k8s_domain`;do virsh domifaddr $i|awk 'FNR==3 {print $4}'|cut -d'/' -f1 >> /var/tmp/k8s_vm_ips;done
 
   - name: List VM IPs
