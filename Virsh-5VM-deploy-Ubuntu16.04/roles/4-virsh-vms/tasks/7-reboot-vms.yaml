@@ -1,15 +1,15 @@
 ---
 
 - name: Reboot all VMs
-  shell: for i in `cat /var/tmp/k8s_domain`;do virsh reboot $i;done
+  shell: for i in `cat /var/tmp/k8s-vms/k8s_domain`;do virsh reboot $i;done
 
 - name: Wait for VMs to come up after Reboot
-    pause:
+  pause:
     mintues: 2
     prompt: "Please hold for 2 minutes, VMs are coming up. Then use Ctrl+c and then c, to continue playbook"
 
 - name: After reboot do validation
-  shell: ssh -o StrictHostKeyChecking=no root@"{{item}}" hostname >> /var/tmp/guest_hostname
+  shell: ssh -o StrictHostKeyChecking=no stack@"{{item}}" hostname >> /var/tmp/k8s-vms/guest_hostname
   with_items:
     - "{{master1_ip}}"
     - "{{master2_ip}}"
@@ -18,7 +18,7 @@
     - "{{node2_ip}}"
 
 - name: List guest VMs hostname
-  shell: cat /var/tmp/guest_hostname
+  shell: cat /var/tmp/k8s-vms/guest_hostname
   register: guest_hostname
 
 - debug:

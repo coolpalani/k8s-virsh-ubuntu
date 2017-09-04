@@ -1,15 +1,4 @@
 ---
 
 - name: Remove Created files
-  command: rm -rf /var/tmp/"{{item}}"
-  with_items:
-    - k8s_domain
-    - k8s-vm_interface
-    - k8s_vm_ips
-    - k8s-master1.interface.j2
-    - k8s-master2.interface.j2
-    - k8s-master3.interface.j2
-    - k8s-node1.interface.j2
-    - k8s-node2.interface.j2
-    - hosts_file.j2
-    - guest_hostname
+  command: rm -rf /var/tmp/k8s-vms

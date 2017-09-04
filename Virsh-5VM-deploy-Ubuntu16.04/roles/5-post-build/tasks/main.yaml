@@ -1,0 +1,4 @@
+---
+
+- include: 1-create-masters-snapshot.yaml
+- include: 2-create-workers-snapshot.yaml

@@ -1,14 +1,7 @@
 ---
 
-- name: Create VMs for K8s cluster using Ubuntu16.04 template
-  command: virt-clone -o "{{ubuntu_template}}" -n "{{item}}" -f "{{vms_disk_path}}"/"{{item}}".qcow2
-  with_items:
-      - "{{master1}}"
-      - "{{master2}}"
-      - "{{master3}}"
-      - "{{node1}}"
-      - "{{node2}}"
-  ignore_errors: false
+- include: 1-masters.yaml
+- include: 2-workers.yaml
 
 
 #  - name: Modify domain connection socket in XML file for RHEL host

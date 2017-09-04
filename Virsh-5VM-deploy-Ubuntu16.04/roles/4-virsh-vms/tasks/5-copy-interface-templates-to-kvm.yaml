@@ -3,7 +3,7 @@
 - name: Copy interfaces configuration files and hosts file to KVM host to copy to VMs
   template:
     src: "{{item}}"
-    dest: /var/tmp/
+    dest: /var/tmp/k8s-vms/
     owner: root
     group: root
     mode: 0644

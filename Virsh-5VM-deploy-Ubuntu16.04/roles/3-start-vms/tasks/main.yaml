@@ -14,8 +14,8 @@
   wait_for:
     path: /var/log/messages
     search_regex: "{{item}}"
-#      sleep: 20
-      delay: 5
+#    sleep: 20
+    delay: 5
   with_items:
     - Starting Virual machine
     - DHCPACK

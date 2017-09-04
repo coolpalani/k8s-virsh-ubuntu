@@ -21,21 +21,28 @@
   register: k8s_node2_ip
 
 - name: Copy VMs ip template and hosts file to VM from KVM host
-  shell: scp -o StrictHostKeyChecking=no /var/tmp/"{{item.source}}" root@$"{{item.vm}}":"{{item.destination}}"
+  shell: scp -o StrictHostKeyChecking=no /var/tmp/k8s-vms/"{{item.source}}" stack@$"{{item.vm}}":/tmp/interfaces
   with_items:
-    - { source: 'k8s-master1.interface.j2', vm: "{{k8s_master1_ip.stdout}}", destination: '/etc/network/interfaces' }
-    - { source: 'k8s-master2.interface.j2', vm: "{{k8s_master2_ip.stdout}}", destination: '/etc/network/interfaces' }
-    - { source: 'k8s-master3.interface.j2', vm: "{{k8s_master3_ip.stdout}}", destination: '/etc/network/interfaces' }
-    - { source: 'k8s-node1.interface.j2', vm: "{{k8s_node1_ip.stdout}}", destination: '/etc/network/interfaces' }
-    - { source: 'k8s-node2.interface.j2', vm: "{{k8s_node2_ip.stdout}}", destination: '/etc/network/interfaces' }
+    - { source: 'k8s-master1.interface.j2', vm: "{{k8s_master1_ip.stdout}}" }
+    - { source: 'k8s-master2.interface.j2', vm: "{{k8s_master2_ip.stdout}}" }
+    - { source: 'k8s-master3.interface.j2', vm: "{{k8s_master3_ip.stdout}}" }
+    - { source: 'k8s-node1.interface.j2', vm: "{{k8s_node1_ip.stdout}}" }
+    - { source: 'k8s-node2.interface.j2', vm: "{{k8s_node2_ip.stdout}}" }
   ignore_errors: false
 
-- name: Copy hosts file to VM
-  shell: for i in `cat /var/tmp/k8s_vm_ips`;do scp -o StrictHostKeyChecking=no /var/tmp/hosts_file.j2 root@$i:/etc/hosts;done
+- name: Replace /etc/network/interfaces file with copied templates insode VMs
+  shell: for i in `cat /var/tmp/k8s-vms/k8s_vm_ips`;do ssh -o StrictHostKeyChecking=no stack@$i "sudo mv /tmp/interfaces /etc/network/interfaces";done
   ignore_errors: false
+
+- name: Copy hosts file to VM in /tmp
+  shell: for i in `cat /var/tmp/k8s-vms/k8s_vm_ips`;do scp -o StrictHostKeyChecking=no /var/tmp/k8s-vms/hosts_file.j2 stack@$i:/tmp/hosts;done
+  ignore_errors: false
+
+- name: Replace /etc/hosts file with copied templates insode VMs
+  shell: for i in `cat /var/tmp/k8s-vms/k8s_vm_ips`;do ssh -o StrictHostKeyChecking=no stack@$i "sudo mv /tmp/hosts /etc/hosts";done
 
 - name: Set hostname of K8s VMs
-  shell: ssh -o StrictHostKeyChecking=no root@"{{item.vm}}" hostnamectl set-hostname "{{item.hostname}}"
+  shell: ssh -o StrictHostKeyChecking=no stack@"{{item.vm}}" 'sudo hostnamectl set-hostname "{{item.hostname}}"'
   with_items:
     - { vm: "{{k8s_master1_ip.stdout}}", hostname: "{{master1}}" }
     - { vm: "{{k8s_master2_ip.stdout}}", hostname: "{{master2}}" }
@@ -45,11 +52,5 @@
   ignore_errors: false
 
 - name: Install python package in VMs
-  shell: ssh -o StrictHostKeyChecking=no root@"{{item}}" "apt install python -y"
-  with_items:
-    - "{{master1_ip}}"
-    - "{{master2_ip}}"
-    - "{{master3_ip}}"
-    - "{{node1_ip}}"
-    - "{{node2_ip}}"
+  shell: for i in `cat /var/tmp/k8s-vms/k8s_vm_ips`;do ssh -o StrictHostKeyChecking=no stack@$i "sudo apt install python -y";done
   ignore_errors: false
