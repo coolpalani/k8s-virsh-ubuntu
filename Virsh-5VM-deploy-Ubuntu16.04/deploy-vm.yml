@@ -230,6 +230,17 @@
       - { vm: "{{k8s_node2_ip.stdout}}", hostname: "{{node2}}" }
     ignore_errors: false
 
+  - name: Set hostname of K8s VMs
+    shell: ssh -o StrictHostKeyChecking=no root@"{{item}}" "apt install python -y"
+    with_items:
+      - "{{master1_ip}}"
+      - "{{master2_ip}}"
+      - "{{master3_ip}}"
+      - "{{node1_ip}}"
+      - "{{node2_ip}}"
+    ignore_errors: false
+
+
   - name: Reboot all VMs
     shell: for i in `cat /var/tmp/k8s_domain`;do virsh reboot $i;done
 
