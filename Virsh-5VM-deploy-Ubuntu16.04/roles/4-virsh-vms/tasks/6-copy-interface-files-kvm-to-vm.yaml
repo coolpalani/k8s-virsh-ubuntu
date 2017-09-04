@@ -1,0 +1,55 @@
+---
+
+- name: Get master1 node IP in variable
+  shell: virsh domifaddr "{{master1}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+  register: k8s_master1_ip
+
+- name: Get master2 node IP in variable
+  shell: virsh domifaddr "{{master2}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+  register: k8s_master2_ip
+
+- name: Get master3 node IP in variable
+  shell: virsh domifaddr "{{master3}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+  register: k8s_master3_ip
+
+- name: Get node1 IP in variable
+  shell: virsh domifaddr "{{node1}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+  register: k8s_node1_ip
+
+- name: Get node2 node IP in variable
+  shell: virsh domifaddr "{{node2}}"|awk 'FNR==3 {print $4}'|cut -d'/' -f1
+  register: k8s_node2_ip
+
+- name: Copy VMs ip template and hosts file to VM from KVM host
+  shell: scp -o StrictHostKeyChecking=no /var/tmp/"{{item.source}}" root@$"{{item.vm}}":"{{item.destination}}"
+  with_items:
+    - { source: 'k8s-master1.interface.j2', vm: "{{k8s_master1_ip.stdout}}", destination: '/etc/network/interfaces' }
+    - { source: 'k8s-master2.interface.j2', vm: "{{k8s_master2_ip.stdout}}", destination: '/etc/network/interfaces' }
+    - { source: 'k8s-master3.interface.j2', vm: "{{k8s_master3_ip.stdout}}", destination: '/etc/network/interfaces' }
+    - { source: 'k8s-node1.interface.j2', vm: "{{k8s_node1_ip.stdout}}", destination: '/etc/network/interfaces' }
+    - { source: 'k8s-node2.interface.j2', vm: "{{k8s_node2_ip.stdout}}", destination: '/etc/network/interfaces' }
+  ignore_errors: false
+
+- name: Copy hosts file to VM
+  shell: for i in `cat /var/tmp/k8s_vm_ips`;do scp -o StrictHostKeyChecking=no /var/tmp/hosts_file.j2 root@$i:/etc/hosts;done
+  ignore_errors: false
+
+- name: Set hostname of K8s VMs
+  shell: ssh -o StrictHostKeyChecking=no root@"{{item.vm}}" hostnamectl set-hostname "{{item.hostname}}"
+  with_items:
+    - { vm: "{{k8s_master1_ip.stdout}}", hostname: "{{master1}}" }
+    - { vm: "{{k8s_master2_ip.stdout}}", hostname: "{{master2}}" }
+    - { vm: "{{k8s_master3_ip.stdout}}", hostname: "{{master3}}" }
+    - { vm: "{{k8s_node1_ip.stdout}}", hostname: "{{node1}}" }
+    - { vm: "{{k8s_node2_ip.stdout}}", hostname: "{{node2}}" }
+  ignore_errors: false
+
+- name: Install python package in VMs
+  shell: ssh -o StrictHostKeyChecking=no root@"{{item}}" "apt install python -y"
+  with_items:
+    - "{{master1_ip}}"
+    - "{{master2_ip}}"
+    - "{{master3_ip}}"
+    - "{{node1_ip}}"
+    - "{{node2_ip}}"
+  ignore_errors: false

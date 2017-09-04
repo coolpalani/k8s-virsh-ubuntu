@@ -1,0 +1,18 @@
+---
+- name: Set Max RAM in VMs
+  command: virsh setmaxmem "{{ item.vm }}" "{{ item.ram }}" --config
+  with_items:
+    - { vm: "{{master1}}", ram: '3G' }
+    - { vm: "{{master2}}", ram: '3G' }
+    - { vm: "{{master3}}", ram: '3G' }
+    - { vm: "{{node1}}", ram: '2G' }
+    - { vm: "{{node2}}", ram: '2G' }
+
+- name: Set Usable RAM in VMs
+  command: virsh setmem "{{ item.vm }}" "{{ item.ram }}" --config
+  with_items:
+    - { vm: "{{master1}}", ram: '3G' }
+    - { vm: "{{master2}}", ram: '3G' }
+    - { vm: "{{master3}}", ram: '3G' }
+    - { vm: "{{node1}}", ram: '2G' }
+    - { vm: "{{node2}}", ram: '2G' }

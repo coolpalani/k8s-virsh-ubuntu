@@ -1,0 +1,9 @@
+---
+
+- include: 1-ram.yaml
+- include: 2-cpu.yaml
+
+- name: Call handler
+  notify:
+  - restart libvirtd
+  - libvirtd check

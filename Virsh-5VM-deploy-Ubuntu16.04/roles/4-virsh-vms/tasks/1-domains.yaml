@@ -1,0 +1,15 @@
+---
+
+- name: Get domain names
+  shell: virsh list|grep -i k8s|awk '{print $2}'|sort > /var/tmp/k8s_domain
+
+- name: Check /var/tmp/k8s_domain
+  stat:
+    path: /var/tmp/k8s_domain
+  ignore_errors: false
+
+- name: List domains
+  shell: cat /var/tmp/k8s_domain
+  register: list_domains
+- debug:
+    var: list_domains.stdout
