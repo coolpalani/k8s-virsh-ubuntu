@@ -9,7 +9,7 @@
     group: stack
 
 - name: Get domain names
-  shell: virsh list|grep -i k8s|awk '{print $2}'|sort > /var/tmp/k8s-vms/k8s_domain
+  shell: virsh list|grep -i k8s|grep -i running|awk '{print $2}'|sort > /var/tmp/k8s-vms/k8s_domain
 
 - name: Check /var/tmp/k8s-vms/k8s_domain
   stat:

@@ -8,6 +8,7 @@
     - "{{master3}}"
     - "{{node1}}"
     - "{{node2}}"
+    - "{{client}}"
   ignore_errors: false
 
 - name: Do conditional check on VM Start
@@ -24,4 +25,5 @@
     - "{{master3}}"
     - "{{node1}}"
     - "{{node2}}"
+    - "{{client}}"
   ignore_errors: true
